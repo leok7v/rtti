@@ -3,18 +3,17 @@
 
 #include <stddef.h>
 
-enum kind {
-  i8 = 1, u8, i16, u16, i32, u32, i64, u64, str, dbl, bln, srct
-};
-
+#ifndef struct_type_info
+#define struct_type_info
 struct type_info {
   const char *name;
   size_t offset;
   size_t bytes;
-  enum kind kind;
+  char kind;
   int is_array;
   const struct type_info *meta;
 };
+#endif
 
 char *encode(void *pointer_to_struct, void *pointer_to_meta);
 

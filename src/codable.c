@@ -157,7 +157,7 @@ static char *parse_val(char *j, void *ptr, const struct type_info *m) {
     } else {
       char *old_j = j;
       switch (m->kind) {
-      case str: {
+      case 's': {
         if (strncmp(j, "null", 4) == 0) {
           *(const char **)ptr = NULL;
           j += 4;
@@ -169,36 +169,21 @@ static char *parse_val(char *j, void *ptr, const struct type_info *m) {
         }
         break;
       }
-      case i8:
-      case i16:
-      case i32:
-      case i64:
-      case u8:
-      case u16:
-      case u32:
-      case u64: {
+      case 'i': {
         long long val = strtoll(j, &j, 10);
-        if (m->kind == i8) {
-          *(int8_t *)ptr = val;
-        } else if (m->kind == i16) {
-          *(int16_t *)ptr = val;
-        } else if (m->kind == i32) {
-          *(int32_t *)ptr = val;
-        } else if (m->kind == i64) {
-          *(int64_t *)ptr = val;
-        } else if (m->kind == u8) {
-          *(uint8_t *)ptr = val;
-        } else if (m->kind == u16) {
-          *(uint16_t *)ptr = val;
-        } else if (m->kind == u32) {
-          *(uint32_t *)ptr = val;
-        } else if (m->kind == u64) {
-          *(uint64_t *)ptr = val;
+        if (m->bytes == 1) {
+          *(int8_t *)ptr = (int8_t)val;
+        } else if (m->bytes == 2) {
+          *(int16_t *)ptr = (int16_t)val;
+        } else if (m->bytes == 4) {
+          *(int32_t *)ptr = (int32_t)val;
+        } else if (m->bytes == 8) {
+          *(int64_t *)ptr = (int64_t)val;
         }
         j = skip_ws(j);
         break;
       }
-      case dbl: {
+      case 'd': {
         double val = strtod(j, &j);
         if (m->bytes == sizeof(float)) {
           *(float *)ptr = (float)val;
@@ -208,7 +193,7 @@ static char *parse_val(char *j, void *ptr, const struct type_info *m) {
         j = skip_ws(j);
         break;
       }
-      case bln: {
+      case 'b': {
         if (strncmp(j, "true", 4) == 0) {
           *(bool *)ptr = true;
           j += 4;
@@ -219,7 +204,7 @@ static char *parse_val(char *j, void *ptr, const struct type_info *m) {
         j = skip_ws(j);
         break;
       }
-      case srct: {
+      case '{': {
         j = parse_obj(j, ptr, m->meta);
         break;
       }
@@ -291,7 +276,7 @@ static void encode_obj(struct sb *b, void *ptr, const struct type_info *m) {
   bool first = true;
   for (const struct type_info *f = m; f && f->name; f++) {
     void *f_ptr = (char *)ptr + f->offset;
-    if (!((f->kind == str || f->is_array) && *(void **)f_ptr == NULL)) {
+    if (!((f->kind == 's' || f->is_array) && *(void **)f_ptr == NULL)) {
       if (!first) {
         sb_append_char(b, ',');
       }
@@ -314,7 +299,7 @@ static void encode_array(struct sb *b, void *arr, const struct type_info *m) {
   bool first = true;
   while (1) {
     bool is_null = true;
-    if (m->kind == str) {
+    if (m->kind == 's') {
       if (*(char **)ptr != NULL) {
         is_null = false;
       }
@@ -345,44 +330,24 @@ static void encode_val(struct sb *b, void *val, const struct type_info *m) {
   } else {
     char buf[64];
     switch (m->kind) {
-    case str:
+    case 's':
       sb_append_char(b, '"');
       sb_append(b, *(const char **)val);
       sb_append_char(b, '"');
       break;
-    case i8:
-      snprintf(buf, sizeof(buf), "%d", *(int8_t *)val);
+    case 'i':
+      if (m->bytes == 1) {
+        snprintf(buf, sizeof(buf), "%d", *(int8_t *)val);
+      } else if (m->bytes == 2) {
+        snprintf(buf, sizeof(buf), "%d", *(int16_t *)val);
+      } else if (m->bytes == 4) {
+        snprintf(buf, sizeof(buf), "%d", *(int32_t *)val);
+      } else if (m->bytes == 8) {
+        snprintf(buf, sizeof(buf), "%lld", *(long long *)val);
+      }
       sb_append(b, buf);
       break;
-    case i16:
-      snprintf(buf, sizeof(buf), "%d", *(int16_t *)val);
-      sb_append(b, buf);
-      break;
-    case i32:
-      snprintf(buf, sizeof(buf), "%d", *(int32_t *)val);
-      sb_append(b, buf);
-      break;
-    case i64:
-      snprintf(buf, sizeof(buf), "%lld", *(long long *)val);
-      sb_append(b, buf);
-      break;
-    case u8:
-      snprintf(buf, sizeof(buf), "%u", *(uint8_t *)val);
-      sb_append(b, buf);
-      break;
-    case u16:
-      snprintf(buf, sizeof(buf), "%u", *(uint16_t *)val);
-      sb_append(b, buf);
-      break;
-    case u32:
-      snprintf(buf, sizeof(buf), "%u", *(uint32_t *)val);
-      sb_append(b, buf);
-      break;
-    case u64:
-      snprintf(buf, sizeof(buf), "%llu", *(unsigned long long *)val);
-      sb_append(b, buf);
-      break;
-    case dbl:
+    case 'd':
       if (m->bytes == sizeof(float)) {
         snprintf(buf, sizeof(buf), "%g", *(float *)val);
       } else {
@@ -390,10 +355,10 @@ static void encode_val(struct sb *b, void *val, const struct type_info *m) {
       }
       sb_append(b, buf);
       break;
-    case bln:
+    case 'b':
       sb_append(b, *(bool *)val ? "true" : "false");
       break;
-    case srct:
+    case '{':
       encode_obj(b, val, m->meta);
       break;
     }

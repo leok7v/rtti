@@ -12,12 +12,15 @@ Build/rtti: src/rtti.c | Build
 Build/client.rtti.h: client.h Build/rtti | Build
 	./Build/rtti client.h > $@
 
-Build/client: client.c src/codable.c llm.c Build/client.rtti.h | Build
+Build/models.rtti.h: src/models.h Build/rtti | Build
+	./Build/rtti src/models.h > $@
+
+Build/client: client.c src/codable.c llm.c Build/client.rtti.h Build/models.rtti.h | Build
 	TMPDIR=/tmp $(CC) $(CFLAGS) -I src -I . -I Build -o $@ \
 		client.c src/codable.c llm.c
 
 clean:
-	rm -rf Build tmp
+	rm -f Build/* tmp/* || true
 
 test: all
 	mkdir -p tmp

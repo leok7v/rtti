@@ -38,34 +38,15 @@ void trim(char *str) {
 }
 
 const char *map_type_to_kind(const char *t, bool is_st, bool is_ptr) {
-  const char *result = "i32";
+  const char *result = "'i'";
   if (is_st) {
-    result = "srct";
+    result = "'{'";
   } else if (strcmp(t, "char") == 0 && is_ptr) {
-    result = "str";
-  } else if (strcmp(t, "int8_t") == 0 || strcmp(t, "char") == 0) {
-    result = "i8";
-  } else if (strcmp(t, "uint8_t") == 0 || strcmp(t, "unsigned char") == 0) {
-    result = "u8";
-  } else if (strcmp(t, "int16_t") == 0 || strcmp(t, "short") == 0) {
-    result = "i16";
-  } else if (strcmp(t, "uint16_t") == 0 || strcmp(t, "unsigned short") == 0) {
-    result = "u16";
-  } else if (strcmp(t, "int32_t") == 0 || strcmp(t, "int") == 0) {
-    result = "i32";
-  } else if (strcmp(t, "uint32_t") == 0 || strcmp(t, "unsigned int") == 0) {
-    result = "u32";
-  } else if (strcmp(t, "int64_t") == 0 || strcmp(t, "long long") == 0 ||
-             strcmp(t, "long") == 0) {
-    result = "i64";
-  } else if (strcmp(t, "uint64_t") == 0 ||
-             strcmp(t, "unsigned long long") == 0 ||
-             strcmp(t, "unsigned long") == 0) {
-    result = "u64";
+    result = "'s'";
   } else if (strcmp(t, "double") == 0 || strcmp(t, "float") == 0) {
-    result = "dbl";
+    result = "'d'";
   } else if (strcmp(t, "bool") == 0 || strcmp(t, "_Bool") == 0) {
-    result = "bln";
+    result = "'b'";
   }
   return result;
 }
@@ -194,7 +175,7 @@ void generate_meta_fields(struct struct_info *s) {
     const char *kind_str =
         map_type_to_kind(f->type_name, f->is_struct, f->is_pointer);
     int is_array = 0;
-    if (f->is_pointer && strcmp(kind_str, "str") != 0) {
+    if (f->is_pointer && strcmp(kind_str, "\"'s\"") != 0 && strcmp(kind_str, "'s'") != 0) {
       is_array = 1;
     }
     const char *child_meta = "NULL";
@@ -217,16 +198,26 @@ void generate_meta_fields(struct struct_info *s) {
     }
     printf("  { \"%s\", offsetof(struct %s, %s),\n"
            "    %s,\n"
-           "    (enum kind)%s, %d, %s },\n",
+           "    %s, %d, %s },\n",
            f->field_name, s->name, f->field_name, size_str, kind_str, is_array,
            child_meta);
   }
 }
 
 void generate_meta(const char *header_filename) {
-  printf("#include \"../src/codable.h\"\n");
-  printf("#include \"../%s\"\n", header_filename);
+  (void)header_filename;
   printf("#include <stddef.h>\n\n");
+  printf("#ifndef struct_type_info\n");
+  printf("#define struct_type_info\n");
+  printf("struct type_info {\n");
+  printf("  const char *name;\n");
+  printf("  size_t offset;\n");
+  printf("  size_t bytes;\n");
+  printf("  char kind;\n");
+  printf("  int is_array;\n");
+  printf("  const struct type_info *meta;\n");
+  printf("};\n");
+  printf("#endif\n\n");
   for (int i = 0; i < struct_count; i++) {
     printf("extern const struct type_info %s_rtti[];\n", structs[i].name);
   }
@@ -235,7 +226,7 @@ void generate_meta(const char *header_filename) {
     struct struct_info *s = &structs[i];
     printf("const struct type_info %s_rtti[] = {\n", s->name);
     generate_meta_fields(s);
-    printf("  { NULL, 0, 0, (enum kind)0, 0, NULL }\n");
+    printf("  { NULL, 0, 0, 0, 0, NULL }\n");
     printf("};\n\n");
   }
 }

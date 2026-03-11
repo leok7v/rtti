@@ -1,5 +1,7 @@
 #include "client.h"
 #include "client.rtti.h"
+#include "models.h"
+#include "models.rtti.h"
 #include "codable.h"
 #include "llm.h"
 #include <stdio.h>
@@ -23,6 +25,40 @@ static void dump_response(struct response_chunk *res) {
 }
 
 int main(void) {
+  const char* backends[] = {"gemini", "groq", "openrouter", "cerebras"};
+  for (int i = 0; i < 4; i++) {
+    printf("--- Fetching simulated models from: %s ---\n", backends[i]);
+    const char *json_models = llm_get_models(backends[i]);
+    if (json_models) {
+      struct model_list list = {0};
+      char *parsed = decode(&list, (void *)model_list_rtti, (char*)json_models);
+      if (parsed) {
+        printf("Object Wrapper: %s\n", list.object ? list.object : "null");
+        if (list.data) {
+          struct model *m = &list.data[0];
+          int m_idx = 0;
+          while (m && m->id) {
+            printf("  Model Index [%d]:\n", m_idx);
+            printf("    ID: %s\n", m->id);
+            printf("    Owned By: %s\n", m->owned_by ? m->owned_by : "null");
+            if (m->architecture.modality) {
+                printf("    Modality: %s\n", m->architecture.modality);
+            }
+            m_idx++;
+            m++;
+          }
+        }
+        free(parsed);
+        if (list.data) {
+           free(list.data);
+        }
+      } else {
+        printf("Failed to decode model list.\n");
+      }
+    }
+    printf("\n");
+  }
+
   struct request req = {0};
   req.model = "reasoning-model-v1";
   req.stream = true;
@@ -35,7 +71,7 @@ int main(void) {
   req.reasoning = res;
   char *json = encode(&req, (void *)request_rtti);
   if (json) {
-    printf("Issuing request:\n%s\n\n", json);
+    printf("Issuing generic chat request:\n%s\n\n", json);
     void *handle = chat_completion_request(json);
     if (handle) {
       printf("Responses:\n");

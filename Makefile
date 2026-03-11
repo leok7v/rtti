@@ -6,18 +6,18 @@ all: Build/rtti Build/client
 Build:
 	mkdir -p Build
 
-Build/rtti: src/rtti.c | Build
-	TMPDIR=/tmp $(CC) $(CFLAGS) -o $@ src/rtti.c
+Build/rtti: rtti.c | Build
+	TMPDIR=/tmp $(CC) $(CFLAGS) -o $@ rtti.c
 
 Build/client.rtti.h: client.h Build/rtti | Build
 	./Build/rtti client.h > $@
 
-Build/models.rtti.h: src/models.h Build/rtti | Build
-	./Build/rtti src/models.h > $@
+Build/models.rtti.h: models.h Build/rtti | Build
+	./Build/rtti models.h > $@
 
-Build/client: client.c src/codable.c llm.c Build/client.rtti.h Build/models.rtti.h | Build
-	TMPDIR=/tmp $(CC) $(CFLAGS) -I src -I . -I Build -o $@ \
-		client.c src/codable.c llm.c
+Build/client: client.c codable.c server.c Build/client.rtti.h Build/models.rtti.h | Build
+	TMPDIR=/tmp $(CC) $(CFLAGS) -I . -I Build -o $@ \
+		client.c codable.c server.c
 
 clean:
 	rm -f Build/* tmp/* || true

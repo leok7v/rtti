@@ -1,40 +1,68 @@
-# rtti meta compiler for encodable/decodable
+# rtti — C meta-compiler for JSON-codable structs
 
-This repository provides a fast, zero-dependency C meta-compiler `rtti` that generates reflection schemas (`type_info`) for `codable` structs, natively solving JSON encoding and decoding in strict ANSI C (MacOS Sandbox Compliant).
+Zero-dependency C meta-compiler that generates reflection schemas (`*.rtti.h`) for `codable` structs, enabling native JSON encoding and decoding in strict ANSI C.
+
+## Quick Start
+
+```bash
+make clean && make && Build/client
+```
 
 ## Architecture
 
-- **`src/rtti.c`**: The meta compiler that parses C headers tracking structs tagged with `#define codable`.
-- **`src/codable.c` & `src/codable.h`**: The JSON serialization engine utilizing mapping outputs!
-  - `encode(void* pointer_to_struct, void* pointer_to_meta)`
-  - `decode(void* pointer_to_struct, void* pointer_to_meta, char* json)`
-- **`client.h`**: Defines the data models for the LLM generation requests alongside streaming schemas (`message`, `request`, `reasoning`, `response_chunk`). 
-- **`client.c`**: An example user agent initializing a simulated context stream pointing towards abstract completions interfaces.
-- **`llm.h` & `llm.c`**: A localized mock LLM server engine intercepting the encoding payloads yielding chunked `delta` simulated AI replies.
+All sources live at the repo root.
 
-## Example JSON structure mapping:
-```json
-{
-  "model": "reasoning-model-v1",
-  "messages": [
-    {"role": "user", "content": "Explain quantum computing."}
-  ],
-  "reasoning": {
-      "effort": "medium"
-   },
-  "stream": true
-}
+| File | Purpose |
+|---|---|
+| `rtti.c` | Meta-compiler: parses headers, emits `*.rtti.h` |
+| `codable.c` / `codable.h` | JSON encode / decode engine |
+| `models.h` | `codable` structs for LLM model-list responses |
+| `client.h` | `codable` structs for chat API (request, response_chunk, …) |
+| `client.c` | Main program: fetches models, filters, runs chat |
+| `server.h` / `server.c` | Backend abstraction via `popen("curl …")` |
+| `Build/` | Generated binaries and `*.rtti.h` headers |
+
+## codable API
+
+Tag any struct with `codable` and run `Build/rtti header.h > Build/header.rtti.h`:
+
+```c
+#define codable
+
+codable struct message {
+  const char *role;
+  const char *content;
+};
 ```
 
-## Build and execution
+Then encode/decode:
 
-Outputs orchestrate carefully into `Build/` separating dynamic binaries from the `src/` hierarchy logic natively. 
-```bash
-make
-make test
+```c
+#include "header.rtti.h"
+#include "codable.h"
+
+char *json = encode(&msg, (void *)message_rtti);
+void *mem  = decode(&msg, (void *)message_rtti, json_str);
+free(mem);
 ```
 
-## Advanced Formatting Logic
+## Supported LLM backends
 
-- **JSON Null Parsing**: Primitive strings correctly identify underlying `null` payloads mapping pointer overrides natively back to the referenced struct headers ensuring non-segmenting safety values.
-- **Continuous Memory**: Non-primitive arrays infer termination sequentially across standard byte zero'd stacks avoiding explicit array length variables safely (E.G `struct reasoning res[2] = {{0}}`).
+`client.c` loops over all backends, picks the right model, and sends one non-streaming chat turn:
+
+| Backend | Model filter |
+|---|---|
+| simulated | `simulated/gpt-oss-*` |
+| ollama (`localhost:11434`) | `gpt-oss:*` |
+| gemini | smallest `gemma` model |
+| groq | `gpt-oss*` |
+| openrouter | `gpt-oss*` (incl. `:free`) |
+| cerebras | `gpt-oss*` |
+
+Set env vars: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`.
+
+## Limitations
+
+- `char**` (array of strings) is not supported by `codable` — omit those fields.
+- Optional numeric fields must be plain primitives (not pointers); absent JSON values default to `0`.
+- Do **not** add `Build/` or `*.rtti.h` to `.gitignore` — macOS sandboxes the IDE shell and blocks writes to those paths.

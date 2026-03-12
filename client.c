@@ -23,7 +23,7 @@ static void str_escape(char *dst, const char *src, size_t max) {
         if (src[si] == '\n') {
             dst[di++] = '\\'; dst[di++] = 'n';
         } else if (src[si] == '"') {
-            dst[di++] = '\\'; dst[di++] = '"';
+            dst[di++] = '"'; dst[di++] = '"';
         } else {
             dst[di++] = src[si];
         }
@@ -129,7 +129,7 @@ static int is_free(const char *backend, struct model *m) {
         strncmp(backend, "http://", 7) == 0 ||
         strncmp(backend, "https://", 8) == 0)
     {
-        return strstr(m->id, "gpt-oss-20b") || strstr(m->id, "gemma");
+        return strstr(m->id, "gpt-oss") || strstr(m->id, "gemma");
     }
     return strcmp(backend, "groq") == 0 || strcmp(backend, "cerebras") == 0;
 }
@@ -191,6 +191,7 @@ static void try_model(const char *backend, const char *id,
 }
 
 static void run_backend(const char *backend, int bench) {
+    int prev_results = n_results;
     printf("=== %s === %s\n", backend, server_get_url(backend));
     char *models_json = server_get_models(backend);
     if (!models_json) {
@@ -225,6 +226,7 @@ static void run_backend(const char *backend, int bench) {
                     struct model_response r = {0};
                     if (!bench) { printf("  Warmup...\n");
                                   server_probe(backend, candidates[ci]); }
+                    struct str best_c = {0}, best_r = {0};
                     for (int cycle = 0; cycle < cycles; cycle++) {
                         try_model(backend, candidates[ci], &r);
                         if (r.content_token_count > 0) {
@@ -242,35 +244,45 @@ static void run_backend(const char *backend, int bench) {
                             }
                             t_ttft += r.ttft; t_pp += pp; t_tg += tg;
                             valid_cycles++;
+                            if (r.content.count > best_c.count) {
+                                free(best_c.data);
+                                best_c = r.content;
+                                r.content.data = NULL; r.content.count = 0;
+                            }
+                            if (r.reasoning.count > best_r.count) {
+                                free(best_r.data);
+                                best_r = r.reasoning;
+                                r.reasoning.data = NULL; r.reasoning.count = 0;
+                            }
                         }
-                        if (cycle < cycles - 1) {
-                            free(r.content.data); free(r.reasoning.data);
-                        }
+                        free(r.content.data); free(r.reasoning.data);
                     }
                     if (valid_cycles > 0) {
                         if (bench && n_results < 512 &&
-                            strcmp(backend, "simulated") != 0 &&
-                            r.content_token_count > 0)
+                            strcmp(backend, "simulated") != 0)
                         {
                             struct free_tier_result *res = &results[n_results++];
-                            strncpy(res->backend, backend, 31);
+                            const char *url = server_get_url(backend);
+                            if (strncmp(url, "http://", 7) == 0) { url += 7; }
+                            else if (strncmp(url, "https://", 8) == 0) { url += 8; }
+                            strncpy(res->backend, url, 31);
                             strncpy(res->model_id, candidates[ci], 127);
                             res->ttft = t_ttft / valid_cycles;
                             res->pp = t_pp / valid_cycles;
                             res->tg = t_tg / valid_cycles;
-                            if (r.reasoning.data) {
-                                strncpy(res->reason, r.reasoning.data, 127);
+                            if (best_r.data) {
+                                strncpy(res->reason, best_r.data, 127);
                             }
-                            if (r.content.data) {
-                                strncpy(res->content, r.content.data, 127);
+                            if (best_c.data) {
+                                strncpy(res->content, best_c.data, 127);
                             }
                         }
-                        if (r.reasoning.data && r.reasoning.count > 0) {
-                            printf("  reason:  %.70s%s\n", r.reasoning.data,
-                                   r.reasoning.count > 70 ? "..." : "");
+                        if (best_r.data && best_r.count > 0) {
+                            printf("  reason:  %.70s%s\n", best_r.data,
+                                   best_r.count > 70 ? "..." : "");
                         }
-                        if (r.content.data && r.content.count > 0) {
-                            printf("  reply:   %s\n", r.content.data);
+                        if (best_c.data && best_c.count > 0) {
+                            printf("  reply:   %s\n", best_c.data);
                         }
                         printf("  tokens:  reasoning=%'d content=%'d",
                                r.reasoning_token_count, r.content_token_count);
@@ -282,10 +294,12 @@ static void run_backend(const char *backend, int bench) {
                                t_ttft / valid_cycles);
                         if (!bench) { break; }
                     }
-                    free(r.content.data);
-                    free(r.reasoning.data);
+                    free(best_c.data);
+                    free(best_r.data);
                 }
             }
+            if (bench) { printf("  [%s: added %d new results, total %d]\n\n",
+                                backend, n_results - prev_results, n_results); }
             free(r_decoded);
             if (list.data) { free(list.data); }
         }
@@ -299,6 +313,7 @@ int main(int argc, char **argv) {
         "simulated", "ollama", "gemini", "groq", "openrouter", "cerebras",
         "github"
     };
+    if (bench) { remove("free.csv"); }
     for (int i = 0; i < 7; i++) { run_backend(backends[i], bench); }
     if (bench) {
         for (int i = 1; i <= 16; i++) {
@@ -306,23 +321,24 @@ int main(int argc, char **argv) {
             snprintf(name, sizeof(name), "LOCAL_HOST_%d", i);
             char *val = getenv(name);
             if (!val) { break; }
+            printf("Detected %s: %s\n", name, val);
             run_backend(val, bench);
         }
     }
     if (bench && n_results > 0) {
         FILE *f = fopen("free.csv", "w");
         if (f) {
-            fprintf(f, "model_id,ttft,pp,tg,backend,content,reason\n");
+            fprintf(f, "\"model_id\",\"ttft\",\"pp\",\"tg\",\"backend\",\"content\",\"reason\"\n");
             for (int i = 0; i < n_results; i++) {
                 char esc_c[256], esc_r[256];
-                str_escape(esc_c, results[i].content, 32);
-                str_escape(esc_r, results[i].reason, 32);
-                fprintf(f, "%s,%.2f,%.0f,%.0f,%s,\"%s\",\"%s\"\n",
+                str_escape(esc_c, results[i].content, 255);
+                str_escape(esc_r, results[i].reason, 255);
+                fprintf(f, "\"%s\",%.2f,%.0f,%.0f,\"%s\",\"%s\",\"%s\"\n",
                         results[i].model_id, results[i].ttft, results[i].pp,
                         results[i].tg, results[i].backend, esc_c, esc_r);
             }
             fclose(f);
-            printf("Saved results to free.csv\n");
+            printf("Saved %d results to free.csv\n", n_results);
         }
     }
     return 0;

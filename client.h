@@ -34,6 +34,7 @@ codable struct request {
 codable struct delta {
   const char *content;
   const char *reasoning_content;
+  const char *reasoning;
 };
 
 codable struct choice {
@@ -42,13 +43,6 @@ codable struct choice {
   const char *finish_reason;
 };
 
-codable struct response_chunk {
-  const char *id;
-  const char *object;
-  long long created;
-  const char *model;
-  struct choice *choices;
-};
 
 codable struct completion_tokens_details {
   long long reasoning_tokens;
@@ -75,6 +69,15 @@ codable struct completion_usage {
   double    total_time;
   struct completion_tokens_details completion_tokens_details;
   struct prompt_tokens_details     prompt_tokens_details;
+};
+
+codable struct response_chunk {
+  const char *id;
+  const char *object;
+  long long created;
+  const char *model;
+  struct choice *choices;
+  struct completion_usage usage;
 };
 
 codable struct time_info {

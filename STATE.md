@@ -1,44 +1,65 @@
 # Project State and Architecture
 
-## Current Architecture
-
-### File Layout (flat — all sources at repo root)
+## File Layout (flat — all sources at repo root)
 - **`rtti.c`**: Meta-compiler. Parses C headers, emits `*.rtti.h` for every `codable struct`.
-- **`codable.c` / `codable.h`**: JSON encode/decode engine using `char kind` (`'s'`, `'i'`, `'d'`, `'b'`, `'['`, `'{'`).
-- **`models.h`**: `codable` structs for LLM model-list API responses (`model_list`, `model`, nested sub-structs). No `char**` — all string-array fields omitted; optional numbers are plain primitives (zero when absent).
-- **`client.h`**: Structs for chat API: `request`, `message`, `reasoning`, `response_chunk`, `delta`, `choice`.
-- **`client.c`**: Main program. Iterates all backends, filters models, fires a single non-streaming turn, prints the reply.
-- **`server.h` / `server.c`**: Backend abstraction using `popen("curl -s ...")`. Exposes:
-  - `server_get_models(backend)` → malloc'd JSON string of model list.
-  - `server_chat_completion(backend, model, prompt)` → malloc'd raw JSON response.
-  - `sim_chat_request/reply/free` — retained simulated streaming for tests.
-- **`Build/`**: Generated binaries (`rtti`, `client`) and generated headers (`client.rtti.h`, `models.rtti.h`).
+- **`codable.c` / `codable.h`**: JSON encode/decode using `char kind` (`'s'`, `'i'`, `'d'`, `'b'`, `'['`, `'{'`). API: `encode(ptr, pointer_to_rtti)` / `decode(ptr, pointer_to_rtti, json)`. `struct type_info` carries rtti metadata.
+- **`models.h`**: `codable` structs for model-list responses (`model_list`, `model`).
+- **`client.h`**: Chat API structs. Two families:
+  - **Streaming**: `delta`, `choice`, `response_chunk` (field: `delta.content`, `delta.reasoning`, `delta.reasoning_content`). `response_chunk` includes `completion_usage` for backends that emit usage in the final SSE chunk.
+  - **Non-streaming**: `completion_message`, `completion_choice`, `completion` — superset of all fields across all backends (`system_fingerprint`, `provider`, `service_tier`, `x_groq`, `time_info`, nested `completion_usage` with `prompt_time`, `completion_time`, token details).
+- **`client.c`**: Main program. For each backend: fetches models, warm-up probe, collects up to 16 candidate models, tries them in order until content is received. Prints reply, reason (truncated), token counts, ttft, pp, tg.
+- **`server.h` / `server.c`**: Backend abstraction via `popen("curl ...")`. Exposes:
+  - `server_get_models(backend)` → malloc'd JSON string.
+  - `server_chat_completion(backend, model, prompt)` → malloc'd JSON (non-streaming).
+  - `server_probe(backend, model)` → silent warmup (fires non-streaming request, discards output).
+  - `server_open_stream(backend, model, prompt)` → `FILE*` for SSE line-by-line streaming (`curl -s -N`, `"stream":true`, `"stream_options":{"include_usage":true}`).
+- **`Build/`**: Binaries and generated `*.rtti.h` headers.
 
-### Supported Backends
-| Backend | Models endpoint | Model filter |
-|---|---|---|
-| `simulated` | hardcoded | `simulated/gpt-oss-*` |
-| `ollama` | `http://localhost:11434/v1/models` | `gpt-oss:*` |
-| `gemini` | Googleapis OpenAI-compat | smallest `gemma` |
-| `groq` | `api.groq.com` | `gpt-oss*` |
-| `openrouter` | `openrouter.ai` | `gpt-oss*` (incl. `:free`) |
-| `cerebras` | `api.cerebras.ai` | `gpt-oss*` |
+## Supported Backends
+| Backend | Model filter |
+|---|---|
+| `simulated` | `simulated/gpt-oss-*` |
+| `ollama` | `gpt-oss:*` |
+| `gemini` | smallest `gemma` |
+| `groq` | `gpt-oss*` |
+| `openrouter` | `gpt-oss*` excluding `safeguard`; `:free` preferred, falls back |
+| `cerebras` | `gpt-oss*` |
 
-API keys are read from env: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`.
+API keys from env: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`.
 
-### Memory Management
-- `decode()` allocates the parsed copy of JSON and any dynamic inner arrays. Caller must `free(list.data)` then `free(parsed)`.
-- `server_get_models()` and `server_chat_completion()` return malloc'd strings — caller frees.
+## client.c Output Format
+```
+=== backend ===
+  Warmup...
+  Model: <id>
+  reply:   <streamed content>        (suppressed if empty)
+  reason:  <first 70 chars>...       (suppressed if empty)
+  tokens:  reasoning=N content=N
+  ttft:    0.52s (time to first token)  pp: ~N  tg: N t/s
+```
+- **ttft**: wall-clock time from curl call to first content token (accurate after warmup).
+- **pp** (prompt processing t/s): exact when backend reports `prompt_time` (Groq); `~` estimated from `prompt_tokens / ttft` if usage available; `~` guestimated from `strlen(prompt)/3.5 / ttft` otherwise.
+- **tg** (token generation t/s): `content_tokens / (elapsed - ttft)`.
+- Thousands separator via `setlocale(LC_NUMERIC, "en_US.UTF-8")` + `%'d`.
 
-### Known Limitations
-- `char**` (array of strings) not supported by `codable` — omit those fields from `codable` structs.
-- `codable` numbers must be plain primitives, not pointers; missing JSON fields default to `0`.
+## struct str (client.c local)
+```c
+struct str { char *data; int32_t count; int32_t capacity; };
+```
+Used to accumulate streaming content and reasoning via `str_push()`.
 
-### Build
+## Memory Management
+- `decode()` allocates a copy of JSON and dynamic inner arrays. Caller: `free(inner_array)` then `free(parsed_copy)`.
+- `server_*` functions return malloc'd strings — caller frees.
+
+## Known Limitations
+- `char**` not supported by `codable` — omit from `codable` structs.
+- Missing JSON fields decode to `0` / `NULL`.
+
+## Build
 ```bash
 make clean && make && Build/client
 ```
 
-### macOS / IDE Sandbox Note
-Do **not** add `Build/` or `*.rtti.h` to `.gitignore`. Doing so causes macOS to sandbox the IDE's background shell and block write access to those paths.
-
+## macOS / IDE Note
+Do **not** add `Build/` or `*.rtti.h` to `.gitignore` — macOS sandboxes the IDE shell and blocks writes to those paths.

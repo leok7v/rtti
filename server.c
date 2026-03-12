@@ -34,14 +34,27 @@ static char *read_popen(const char *cmd) {
     return r;
 }
 
-static char *make_get_cmd(const char *url, const char *key_env) {
-    char cmd[1024];
+static int is_url(const char *s) {
+    return strncmp(s, "http://", 7) == 0 || strncmp(s, "https://", 8) == 0;
+}
+
+static char *make_get_cmd(const char *backend, const char *url,
+                           const char *key_env) {
+    char cmd[2048];
     const char *key = key_env ? getenv(key_env) : NULL;
+    char auth[512] = {0};
+    if (is_url(backend)) {
+        key = "ollama";
+    }
     if (key && key[0]) {
+        snprintf(auth, sizeof(auth), " -H \"Authorization: Bearer %s\"", key);
+    }
+    if (strcmp(backend, "github") == 0) {
         snprintf(cmd, sizeof(cmd),
-                 "curl -s -H \"Authorization: Bearer %s\" \"%s\"", key, url);
+            "curl -s%s -H \"Accept: application/vnd.github+json\" "
+            "-H \"X-GitHub-Api-Version: 2022-11-28\" \"%s\"", auth, url);
     } else {
-        snprintf(cmd, sizeof(cmd), "curl -s \"%s\"", url);
+        snprintf(cmd, sizeof(cmd), "curl -s%s \"%s\"", auth, url);
     }
     return strdup(cmd);
 }
@@ -60,20 +73,29 @@ char *server_get_models(const char *backend) {
         r = strdup(sim_models);
     } else {
         char *cmd = NULL;
-        if (strcmp(backend, "ollama") == 0) {
-            cmd = make_get_cmd("http://localhost:11434/v1/models", NULL);
+        if (is_url(backend)) {
+            char url[512];
+            snprintf(url, sizeof(url), "%s/v1/models", backend);
+            cmd = make_get_cmd(backend, url, NULL);
+        } else if (strcmp(backend, "ollama") == 0) {
+            cmd = make_get_cmd(backend, "http://localhost:11434/v1/models",
+                               NULL);
         } else if (strcmp(backend, "gemini") == 0) {
-            cmd = make_get_cmd("https://generativelanguage.googleapis.com"
-                               "/v1beta/openai/models", "GEMINI_API_KEY");
+            cmd = make_get_cmd(backend, "https://generativelanguage."
+                               "googleapis.com/v1beta/openai/models",
+                               "GEMINI_API_KEY");
         } else if (strcmp(backend, "groq") == 0) {
-            cmd = make_get_cmd("https://api.groq.com/openai/v1/models",
+            cmd = make_get_cmd(backend, "https://api.groq.com/openai/v1/models",
                                "GROQ_API_KEY");
         } else if (strcmp(backend, "openrouter") == 0) {
-            cmd = make_get_cmd("https://openrouter.ai/api/v1/models",
+            cmd = make_get_cmd(backend, "https://openrouter.ai/api/v1/models",
                                "OPENROUTER_API_KEY");
         } else if (strcmp(backend, "cerebras") == 0) {
-            cmd = make_get_cmd("https://api.cerebras.ai/v1/models",
+            cmd = make_get_cmd(backend, "https://api.cerebras.ai/v1/models",
                                "CEREBRAS_API_KEY");
+        } else if (strcmp(backend, "github") == 0) {
+            cmd = make_get_cmd(backend, "https://models.inference.ai.azure.com/"
+                               "models", "GITHUB_API_KEY");
         }
         if (cmd) {
             r = read_popen(cmd);
@@ -81,6 +103,23 @@ char *server_get_models(const char *backend) {
         }
     }
     return r;
+}
+
+const char *server_get_url(const char *backend) {
+    if (is_url(backend)) { return backend; }
+    if (strcmp(backend, "ollama") == 0) { return "http://localhost:11434"; }
+    if (strcmp(backend, "gemini") == 0) {
+        return "https://generativelanguage.googleapis.com";
+    }
+    if (strcmp(backend, "groq") == 0) { return "https://api.groq.com"; }
+    if (strcmp(backend, "openrouter") == 0) {
+        return "https://openrouter.ai";
+    }
+    if (strcmp(backend, "cerebras") == 0) { return "https://api.cerebras.ai"; }
+    if (strcmp(backend, "github") == 0) {
+        return "https://models.inference.ai.azure.com";
+    }
+    return "";
 }
 
 char *server_chat_completion(const char *backend, const char *model,
@@ -99,7 +138,9 @@ char *server_chat_completion(const char *backend, const char *model,
     } else {
         char url[256] = {0};
         const char *key_env = NULL;
-        if (strcmp(backend, "ollama") == 0) {
+        if (is_url(backend)) {
+            snprintf(url, sizeof(url), "%s/v1/chat/completions", backend);
+        } else if (strcmp(backend, "ollama") == 0) {
             snprintf(url, sizeof(url),
                      "http://localhost:11434/v1/chat/completions");
         } else if (strcmp(backend, "gemini") == 0) {
@@ -118,6 +159,10 @@ char *server_chat_completion(const char *backend, const char *model,
             snprintf(url, sizeof(url),
                      "https://api.cerebras.ai/v1/chat/completions");
             key_env = "CEREBRAS_API_KEY";
+        } else if (strcmp(backend, "github") == 0) {
+            snprintf(url, sizeof(url),
+                     "https://models.inference.ai.azure.com/chat/completions");
+            key_env = "GITHUB_API_KEY";
         }
         if (url[0]) {
             char esc[2048];
@@ -134,15 +179,22 @@ char *server_chat_completion(const char *backend, const char *model,
                 model, esc);
             char cmd[8192];
             const char *key = key_env ? getenv(key_env) : NULL;
+            if (is_url(backend)) { key = "ollama"; }
+            char extra[256] = {0};
+            if (strcmp(backend, "github") == 0) {
+                snprintf(extra, sizeof(extra),
+                    " -H \"Accept: application/vnd.github+json\" "
+                    "-H \"X-GitHub-Api-Version: 2022-11-28\"");
+            }
             if (key && key[0]) {
                 snprintf(cmd, sizeof(cmd),
-                    "curl -s -X POST -H \"Content-Type: application/json\" "
+                    "curl -s -X POST -H \"Content-Type: application/json\"%s "
                     "-H \"Authorization: Bearer %s\" "
-                    "-d '%s' \"%s\"", key, body, url);
+                    "-d '%s' \"%s\"", extra, key, body, url);
             } else {
                 snprintf(cmd, sizeof(cmd),
-                    "curl -s -X POST -H \"Content-Type: application/json\" "
-                    "-d '%s' \"%s\"", body, url);
+                    "curl -s -X POST -H \"Content-Type: application/json\"%s "
+                    "-d '%s' \"%s\"", extra, body, url);
             }
             r = read_popen(cmd);
         }
@@ -168,7 +220,9 @@ FILE *server_open_stream(const char *backend, const char *model,
     } else {
         char url[256] = {0};
         const char *key_env = NULL;
-        if (strcmp(backend, "ollama") == 0) {
+        if (is_url(backend)) {
+            snprintf(url, sizeof(url), "%s/v1/chat/completions", backend);
+        } else if (strcmp(backend, "ollama") == 0) {
             snprintf(url, sizeof(url),
                      "http://localhost:11434/v1/chat/completions");
         } else if (strcmp(backend, "gemini") == 0) {
@@ -187,6 +241,10 @@ FILE *server_open_stream(const char *backend, const char *model,
             snprintf(url, sizeof(url),
                      "https://api.cerebras.ai/v1/chat/completions");
             key_env = "CEREBRAS_API_KEY";
+        } else if (strcmp(backend, "github") == 0) {
+            snprintf(url, sizeof(url),
+                     "https://models.inference.ai.azure.com/chat/completions");
+            key_env = "GITHUB_API_KEY";
         }
         if (url[0]) {
             char esc[2048];
@@ -204,15 +262,22 @@ FILE *server_open_stream(const char *backend, const char *model,
                 model, esc);
             char cmd[8192];
             const char *key = key_env ? getenv(key_env) : NULL;
+            if (is_url(backend)) { key = "ollama"; }
+            char extra[256] = {0};
+            if (strcmp(backend, "github") == 0) {
+                snprintf(extra, sizeof(extra),
+                    " -H \"Accept: application/vnd.github+json\" "
+                    "-H \"X-GitHub-Api-Version: 2022-11-28\"");
+            }
             if (key && key[0]) {
                 snprintf(cmd, sizeof(cmd),
-                    "curl -s -N -X POST -H \"Content-Type: application/json\" "
+                    "curl -s -N -X POST -H \"Content-Type: application/json\"%s "
                     "-H \"Authorization: Bearer %s\" "
-                    "-d '%s' \"%s\"", key, body, url);
+                    "-d '%s' \"%s\"", extra, key, body, url);
             } else {
                 snprintf(cmd, sizeof(cmd),
-                    "curl -s -N -X POST -H \"Content-Type: application/json\" "
-                    "-d '%s' \"%s\"", body, url);
+                    "curl -s -N -X POST -H \"Content-Type: application/json\"%s "
+                    "-d '%s' \"%s\"", extra, body, url);
             }
             r = popen(cmd, "r");
         }

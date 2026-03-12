@@ -20,7 +20,7 @@ Build/client: client.c codable.c server.c Build/client.rtti.h Build/models.rtti.
 		client.c codable.c server.c
 
 clean:
-	rm -f Build/* tmp/* || true
+	rm -rf Build tmp
 
 test: all
 	mkdir -p tmp

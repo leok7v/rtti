@@ -20,8 +20,8 @@
 |---|---|
 | `simulated` | `simulated/gpt-oss-*` |
 | `ollama` | `gpt-oss:*` |
-| `gemini` | smallest `gemma` |
-| `groq` | `gpt-oss*` |
+| `gemini` | `gemma-3-27b*` |
+| `groq` | `gpt-oss-120b` or `20b` excluding `safeguard` |
 | `openrouter` | `gpt-oss*` excluding `safeguard`; `:free` preferred, falls back |
 | `cerebras` | `gpt-oss*` |
 
@@ -34,8 +34,8 @@ API keys from env: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CERE
   Model: <id>
   reply:   <streamed content>        (suppressed if empty)
   reason:  <first 70 chars>...       (suppressed if empty)
-  tokens:  reasoning=N content=N
-  ttft:    0.52s (time to first token)  pp: ~N  tg: N t/s
+  tokens:  reasoning=N content=N   pp: ~N  tg: N t/s
+  ttft:    0.52s (time to first token)
 ```
 - **ttft**: wall-clock time from curl call to first content token (accurate after warmup).
 - **pp** (prompt processing t/s): exact when backend reports `prompt_time` (Groq); `~` estimated from `prompt_tokens / ttft` if usage available; `~` guestimated from `strlen(prompt)/3.5 / ttft` otherwise.

@@ -6,12 +6,12 @@
 #ifndef struct_type_info
 #define struct_type_info
 struct type_info { /* rtti - run time type information */
-  const char *name;
-  size_t offset;
-  size_t bytes;
-  char kind;
-  int is_array;
-  const struct type_info *meta;
+    const char *name;
+    size_t offset;
+    size_t bytes;
+    char kind;
+    int is_array;
+    const struct type_info *meta;
 };
 #endif
 

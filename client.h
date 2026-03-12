@@ -6,13 +6,6 @@
 
 #define codable
 
-struct point {
-  int x;
-  int y;
-}; // not using codable
-
-struct point foo(struct point param);
-
 codable struct message {
   const char *role;
   const char *content;
@@ -43,7 +36,6 @@ codable struct choice {
   const char *finish_reason;
 };
 
-
 codable struct completion_tokens_details {
   long long reasoning_tokens;
   long long accepted_prediction_tokens;
@@ -62,13 +54,13 @@ codable struct completion_usage {
   long long prompt_tokens;
   long long completion_tokens;
   long long total_tokens;
-  double    cost;
-  double    queue_time;
-  double    prompt_time;
-  double    completion_time;
-  double    total_time;
+  double cost;
+  double queue_time;
+  double prompt_time;
+  double completion_time;
+  double total_time;
   struct completion_tokens_details completion_tokens_details;
-  struct prompt_tokens_details     prompt_tokens_details;
+  struct prompt_tokens_details prompt_tokens_details;
 };
 
 codable struct response_chunk {
@@ -109,15 +101,15 @@ codable struct completion_choice {
 codable struct completion {
   const char *id;
   const char *object;
-  long long   created;
+  long long created;
   const char *model;
   const char *system_fingerprint;
   const char *provider;
   const char *service_tier;
   struct completion_choice *choices;
-  struct completion_usage   usage;
-  struct time_info          time_info;
-  struct x_groq             x_groq;
+  struct completion_usage usage;
+  struct time_info time_info;
+  struct x_groq x_groq;
 };
 
 #endif

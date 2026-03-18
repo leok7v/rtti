@@ -3,9 +3,10 @@
 
 #include <stddef.h>
 
+/* encode a struct to json */
+char * encode(void * pointer_to_struct, void * pointer_to_rtti);
 
-char *encode(void *pointer_to_struct, void *pointer_to_rtti);
-
-void *decode(void *pointer_to_rtti, const char *json);
+/* decode a json to memory allocated pointer to struct */
+void * decode(void * pointer_to_rtti, const char * json);
 
 #endif

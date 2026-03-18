@@ -14,8 +14,11 @@ bin/rtti: rtti/rtti.c | bin
 include/%.rtti.h: include/%.h bin/rtti
 	bin/rtti $< -o $@
 
-bin/llms: llm/llms.c llm/server.c llm/sb.c codable/codable.c include/models.rtti.h include/completion.rtti.h | bin
-	$(CC) $(CFLAGS) $(I) -o $@ llm/llms.c llm/server.c llm/sb.c codable/codable.c
+bin/llms: llm/llms.c llm/server.c llm/sb.c \
+	codable/codable.c include/models.rtti.h \
+	include/completion.rtti.h | bin
+	$(CC) $(CFLAGS) $(I) -o $@ llm/llms.c llm/server.c llm/sb.c \
+	codable/codable.c
 
 test: all
 	bin/llms --all
